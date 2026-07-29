@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<!--
+    Tool registration into the Angeo MCP Server.
+    ToolRegistry FQN and the `tools` array-argument name are verified against
+    angeo/module-mcp-server v1.0.0 (Angeo\McpServer\Model\Tool\ToolRegistry).
+    Item names below are the di.xml keys; the actual MCP tool name comes from
+    each tool's getName(). Last registration wins, so these keys won't clash
+    with the server's built-in read tools.
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+
+    <type name="Angeo\McpServer\Model\Tool\ToolRegistry">
+        <arguments>
+            <argument name="tools" xsi:type="array">
+                <item name="angeo_create_cart" xsi:type="object">Angeo\McpCheckout\Model\Tool\CreateCart</item>
+                <item name="angeo_add_to_cart" xsi:type="object">Angeo\McpCheckout\Model\Tool\AddToCart</item>
+                <item name="angeo_get_cart" xsi:type="object">Angeo\McpCheckout\Model\Tool\GetCart</item>
+                <item name="angeo_get_shipping_methods" xsi:type="object">Angeo\McpCheckout\Model\Tool\GetShippingMethods</item>
+                <item name="angeo_set_shipping_information" xsi:type="object">Angeo\McpCheckout\Model\Tool\SetShippingInformation</item>
+                <item name="angeo_place_order" xsi:type="object">Angeo\McpCheckout\Model\Tool\PlaceOrder</item>
+            </argument>
+        </arguments>
+    </type>
+
+</config>

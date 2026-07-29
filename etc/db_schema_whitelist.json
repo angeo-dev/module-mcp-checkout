@@ -1,0 +1,18 @@
+{
+    "angeo_mcp_order_log": {
+        "column": {
+            "entity_id": true,
+            "remote_ip": true,
+            "order_id": true,
+            "quote_id": true,
+            "created_at": true
+        },
+        "index": {
+            "ANGEO_MCP_ORDER_LOG_CREATED_AT": true,
+            "ANGEO_MCP_ORDER_LOG_REMOTE_IP_CREATED_AT": true
+        },
+        "constraint": {
+            "PRIMARY": true
+        }
+    }
+}

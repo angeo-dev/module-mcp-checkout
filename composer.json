@@ -1,0 +1,43 @@
+{
+    "name": "angeo/module-mcp-checkout",
+    "description": "Guest cart and checkout MCP tools for Magento 2. Adds create_cart, add_to_cart, get_cart, get_shipping_methods, set_shipping_information and place_order to the Angeo MCP Server, letting AI agents (Claude and other MCP clients) complete a full discovery-to-order flow with hard server-side guardrails.",
+    "type": "magento2-module",
+    "license": "MIT",
+    "version": "1.0.0",
+    "keywords": [
+        "magento2",
+        "mcp",
+        "model-context-protocol",
+        "agentic-commerce",
+        "ai-agents",
+        "claude",
+        "checkout",
+        "adobe-commerce"
+    ],
+    "authors": [
+        {
+            "name": "Ievgenii Gryshkun",
+            "homepage": "https://angeo.dev"
+        }
+    ],
+    "require": {
+        "php": "~8.1.0||~8.2.0||~8.3.0||~8.4.0",
+        "angeo/module-mcp-server": "^1.0",
+        "magento/framework": ">=103.0.6",
+        "magento/module-quote": "*",
+        "magento/module-checkout": "*",
+        "magento/module-sales": "*",
+        "magento/module-store": "*",
+        "magento/module-directory": "*",
+        "magento/module-offline-payments": "*",
+        "magento/module-offline-shipping": "*"
+    },
+    "autoload": {
+        "files": [
+            "registration.php"
+        ],
+        "psr-4": {
+            "Angeo\\McpCheckout\\": ""
+        }
+    }
+}
