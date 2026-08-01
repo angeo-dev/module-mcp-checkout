@@ -23,4 +23,20 @@
         </arguments>
     </type>
 
+    <!--
+        Authoritative guardrail enforcement (1.1.0).
+
+        CartManagementInterface::placeOrder() is the single point every route to a placed
+        order passes through — the place_order tool, Magento's anonymous
+        guest-cart REST endpoint (PUT /V1/guest-carts/{id}/order), GraphQL, and
+        anything else built on the service contracts. Enforcing here rather than
+        only inside the MCP tools is what stops a leaked cart_id from being used
+        to walk around the caps. Carts not created by an agent are unaffected.
+    -->
+    <type name="Magento\Quote\Api\CartManagementInterface">
+        <plugin name="angeo_mcp_checkout_agent_order_guardrails"
+                type="Angeo\McpCheckout\Plugin\AgentOrderGuardrails"
+                sortOrder="10"/>
+    </type>
+
 </config>

@@ -10,6 +10,7 @@ namespace Angeo\McpCheckout\Model\Tool;
 use Angeo\McpCheckout\Model\CartFormatter;
 use Angeo\McpCheckout\Model\CartResolver;
 use Angeo\McpCheckout\Model\Config;
+use Angeo\McpCheckout\Model\GuardrailValidator;
 use Magento\Quote\Api\Data\CartItemInterfaceFactory;
 use Magento\Quote\Api\GuestCartItemRepositoryInterface;
 use Magento\Store\Api\Data\StoreInterface;
@@ -23,7 +24,8 @@ class AddToCart extends AbstractTool
         private readonly GuestCartItemRepositoryInterface $guestCartItemRepository,
         private readonly CartItemInterfaceFactory $cartItemFactory,
         private readonly CartResolver $cartResolver,
-        private readonly CartFormatter $cartFormatter
+        private readonly CartFormatter $cartFormatter,
+        private readonly GuardrailValidator $guardrailValidator
     ) {
         parent::__construct($config, $logger);
     }
@@ -73,6 +75,8 @@ class AddToCart extends AbstractTool
         $sku = trim((string)$args['sku']);
         $qty = max(1, (int)($args['qty'] ?? 1));
 
+        $quote = $this->cartResolver->getQuoteByMaskedId($cartId, $storeId);
+
         $maxQty = $this->config->getMaxQtyPerItem($storeId);
         if ($qty > $maxQty) {
             throw new \InvalidArgumentException(sprintf(
@@ -82,10 +86,29 @@ class AddToCart extends AbstractTool
             ));
         }
 
-        $quote = $this->cartResolver->getQuoteByMaskedId($cartId);
+        // Magento merges same-SKU additions into one line item and sums the
+        // quantity, so validating only the increment let repeated calls stack
+        // arbitrarily high past the per-item cap. Validate the RESULT.
+        $existingQty = 0.0;
+        foreach ($quote->getAllVisibleItems() as $item) {
+            if ((string)$item->getSku() === $sku) {
+                $existingQty = (float)$item->getQty();
+                break;
+            }
+        }
+        if ($existingQty + $qty > $maxQty) {
+            throw new \InvalidArgumentException(sprintf(
+                'The cart already contains %s × "%s"; adding %d more would exceed the per-item limit '
+                . 'of %d for agent orders.',
+                rtrim(rtrim(number_format($existingQty, 2, '.', ''), '0'), '.'),
+                $sku,
+                $qty,
+                $maxQty
+            ));
+        }
 
         $maxItems = $this->config->getMaxCartItems($storeId);
-        if (count($quote->getAllVisibleItems()) >= $maxItems) {
+        if ($existingQty === 0.0 && count($quote->getAllVisibleItems()) >= $maxItems) {
             throw new \InvalidArgumentException(sprintf(
                 'The cart already contains the maximum of %d line items allowed for agent orders.',
                 $maxItems
@@ -102,19 +125,30 @@ class AddToCart extends AbstractTool
         // Re-load with fresh totals and enforce the order-total cap. If the cap
         // is breached, roll the add back so the cart never enters a state that
         // place_order would reject anyway.
-        $quote = $this->cartResolver->getQuoteByMaskedId($cartId);
-        $maxTotal = $this->config->getMaxOrderTotal($storeId);
-        if ($maxTotal > 0 && (float)$quote->getGrandTotal() > $maxTotal) {
-            $this->guestCartItemRepository->deleteById($cartId, (int)$savedItem->getItemId());
+        $quote = $this->cartResolver->getQuoteByMaskedId($cartId, $storeId);
+        try {
+            $this->guardrailValidator->assertOrderTotal($quote, $storeId);
+        } catch (\InvalidArgumentException $capBreached) {
+            try {
+                $this->guestCartItemRepository->deleteById($cartId, (int)$savedItem->getItemId());
+            } catch (\Throwable $rollbackFailed) {
+                // The cap still holds at place_order, but the cart is now in a
+                // state the agent cannot see the reason for. Make it findable.
+                $this->logger->error(sprintf(
+                    '[Angeo_McpCheckout] Could not roll back over-cap item %d on cart %s: %s',
+                    (int)$savedItem->getItemId(),
+                    $cartId,
+                    $rollbackFailed->getMessage()
+                ), ['exception' => $rollbackFailed]);
+            }
 
             throw new \InvalidArgumentException(sprintf(
-                'Adding "%s" (qty %d) would push the order total above the %s %s limit for agent '
-                . 'orders. The item was not added. Choose a cheaper alternative or reduce quantities.',
+                'Adding "%s" (qty %d) would push the order total above the limit for agent orders. '
+                . 'The item was not added. Choose a cheaper alternative or reduce quantities. (%s)',
                 $sku,
                 $qty,
-                number_format($maxTotal, 2),
-                (string)$quote->getQuoteCurrencyCode()
-            ));
+                $capBreached->getMessage()
+            ), 0, $capBreached);
         }
 
         return [

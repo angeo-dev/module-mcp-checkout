@@ -20,7 +20,7 @@
                 <allowed_countries>NL</allowed_countries>
             </shipping>
             <cleanup>
-                <enabled>1</enabled>
+                <enabled>0</enabled>
                 <order_age_hours>24</order_age_hours>
             </cleanup>
         </angeo_mcp_checkout>

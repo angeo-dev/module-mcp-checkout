@@ -7,10 +7,12 @@
                 identity="true" comment="Entity ID"/>
         <column xsi:type="varchar" name="remote_ip" length="45" nullable="false"
                 comment="Remote IP of the MCP client"/>
+        <column xsi:type="smallint" name="store_id" unsigned="true" nullable="false" default="0"
+                comment="Store the order was placed on (rate limits are per store)"/>
         <column xsi:type="int" name="order_id" unsigned="true" nullable="false"
-                comment="Sales order entity ID"/>
+                comment="Sales order entity ID; 0 = reservation not yet confirmed"/>
         <column xsi:type="int" name="quote_id" unsigned="true" nullable="false"
-                comment="Quote entity ID"/>
+                comment="Quote entity ID; 0 = reservation not yet confirmed"/>
         <column xsi:type="timestamp" name="created_at" on_update="false" nullable="false"
                 default="CURRENT_TIMESTAMP" comment="Created At (UTC)"/>
         <constraint xsi:type="primary" referenceId="PRIMARY">
@@ -21,6 +23,28 @@
         </index>
         <index referenceId="ANGEO_MCP_ORDER_LOG_REMOTE_IP_CREATED_AT" indexType="btree">
             <column name="remote_ip"/>
+            <column name="created_at"/>
+        </index>
+        <!-- Supports the rank query in OrderRateLimiter::reserve(). -->
+        <index referenceId="ANGEO_MCP_ORDER_LOG_STORE_ID_CREATED_AT_ENTITY_ID" indexType="btree">
+            <column name="store_id"/>
+            <column name="created_at"/>
+            <column name="entity_id"/>
+        </index>
+    </table>
+
+    <table name="angeo_mcp_agent_quote" resource="default" engine="innodb"
+           comment="Angeo MCP Checkout: quotes created by an AI agent via MCP">
+        <column xsi:type="int" name="quote_id" unsigned="true" nullable="false"
+                comment="Quote entity ID"/>
+        <column xsi:type="smallint" name="store_id" unsigned="true" nullable="false" default="0"
+                comment="Store the cart was created on"/>
+        <column xsi:type="timestamp" name="created_at" on_update="false" nullable="false"
+                default="CURRENT_TIMESTAMP" comment="Created At (UTC)"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="quote_id"/>
+        </constraint>
+        <index referenceId="ANGEO_MCP_AGENT_QUOTE_CREATED_AT" indexType="btree">
             <column name="created_at"/>
         </index>
     </table>

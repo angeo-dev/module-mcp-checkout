@@ -4,7 +4,8 @@
 
 | Version | Supported |
 | --- | --- |
-| 1.0.x | ✅ |
+| 1.1.x | ✅ |
+| 1.0.x | ❌ — contains a rate-limiter concurrency bypass, upgrade to 1.1.0 |
 | < 1.0 | ❌ |
 
 ## Reporting a vulnerability
@@ -38,6 +39,15 @@ Out of scope:
 - Vulnerabilities in Magento core or third-party extensions, which belong with those vendors
 - Denial of service through request volume against an endpoint with rate limiting disabled
 - Findings that require admin access to exploit
+
+## Where the boundary is
+
+Since 1.1.0 the guardrails are enforced in `Plugin\AgentOrderGuardrails`, on
+`Magento\Quote\Model\CartManagementInterface::placeOrder()` — not only inside the MCP
+tools. That matters because the masked `cart_id` given to an agent is also a
+valid credential for Magento's own anonymous guest-cart REST endpoints. Treat
+`cart_id` as a bearer token: anything holding it can act on that cart, and the
+caps are what limit the damage.
 
 ## A note on agentic modules
 

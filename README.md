@@ -5,7 +5,7 @@
 
 # MCP Checkout for Magento 2 — AI Agent Cart & Order Tools
 
-**Six MCP tools that let an AI agent go from a product search to a placed order in a real Magento store — with every guardrail enforced server-side.**
+**Six MCP tools that let an AI agent go from a product search to a placed order in a real Magento store — with every guardrail enforced server-side, at the order choke point.**
 
 `angeo/module-mcp-checkout` extends [`angeo/module-mcp-server`](https://github.com/angeo-dev/module-mcp-server) v1.0.0 with guest cart and checkout tools, so Claude or any MCP client can complete a full **discovery → cart → checkout** flow against Magento 2 / Adobe Commerce. No browser automation, no scraping, no headless driver that breaks on the next theme deploy.
 
@@ -26,6 +26,7 @@
 - [Connecting Claude](#connecting-claude)
 - [Design decisions](#design-decisions)
 - [FAQ](#faq)
+- [Changelog](CHANGELOG.md)
 - [The Angeo agentic stack](#the-angeo-agentic-stack)
 
 ## Tools
@@ -37,7 +38,7 @@
 | `get_cart` | Line items and totals |
 | `get_shipping_methods` | Estimate shipping for a destination; enforces country whitelist |
 | `set_shipping_information` | Address + email + shipping method; returns allowed payment methods and final totals |
-| `place_order` | Places the order; enforces rate limits, total cap, payment whitelist; tags and audit-logs the order |
+| `place_order` | Places the order; pre-flights every cap for a clear agent-facing message, then the guardrail plugin re-verifies and reserves the rate-limit slot; tags and audit-logs the order |
 
 Canonical agent flow:
 
@@ -60,16 +61,40 @@ No changes to `module-mcp-server` are required.
 
 ## Security model
 
-Disabled by default. Every guardrail is enforced server-side — an agent, or a malicious MCP client, cannot bypass them regardless of prompting. A limit written into a system prompt is advisory; a limit enforced in PHP before the order is placed is not.
+Disabled by default. A limit written into a system prompt is advisory; a limit enforced in PHP before the order is placed is not.
 
-- **Guest checkout only.** Never touches customer accounts or stored payment data. The blast radius of a compromised agent session is one guest cart.
-- **Payment method whitelist**, default `checkmo` (offline). Online methods must be explicitly allowed.
-- **Order total cap** (default 100, store currency) — enforced at `add_to_cart` with rollback of the offending item, and re-checked at `place_order`.
-- **Qty / cart-size caps** (default 5 per item, 10 line items).
-- **Rate limits** — global orders/hour (default 10) and per-IP orders/hour (default 10). *Important:* the server already rate-limits requests per client key (`REMOTE_ADDR|sha256(token)`), and cloud MCP clients like Claude connect from a small pool of provider egress IPs — so the **global** cap is the real safety valve here; the per-IP cap is a secondary brake for direct callers. Backed by a DB table (`angeo_mcp_order_log`), `open_basedir`-safe, doubling as an audit trail.
-- **Country whitelist** for shipping (default `NL`). Independent of Magento's own allowed-countries setting — both must permit the destination.
-- **Order tagging** — every agent order gets a status-history comment with the client IP.
-- **Demo hygiene cron** — hourly job cancels unpaid agent orders older than 24h. Configurable; disable it for stores taking real agent orders.
+### Where enforcement lives
+
+Since **1.1.0** the guardrails are applied in `Plugin\AgentOrderGuardrails`, on `Magento\Quote\Model\CartManagementInterface::placeOrder()` — the single point every route to a placed order passes through. The checks inside the MCP tools remain as a fast pre-flight so the agent gets a specific, recoverable message, but they are not the boundary.
+
+This matters more than it sounds. The masked `cart_id` handed to an agent is **also a valid credential for Magento's own anonymous guest-cart REST endpoints**:
+
+```
+POST /rest/V1/guest-carts/{cartId}/items
+POST /rest/V1/guest-carts/{cartId}/shipping-information
+PUT  /rest/V1/guest-carts/{cartId}/order
+```
+
+In 1.0.x every cap lived in the tool layer, so anything holding a `cart_id` — a compromised agent, a leaked transcript, a verbose log — could add 500 units, ship anywhere, pick any enabled payment method and place the order outside every limit and outside the audit log. Carts created via `create_cart` are now flagged in `angeo_mcp_agent_quote`, and the plugin applies the full guardrail set to them wherever the order request originates. Carts that were not created by an agent are untouched.
+
+**Treat `cart_id` as a bearer token.** The caps are what bound the damage if it leaks; they are no longer avoidable by changing entry point.
+
+### The guardrails
+
+- **Guest checkout only** — enforced, not assumed. Carts carrying a `customer_id` are rejected, as are carts belonging to another store view and carts already ordered. The blast radius of a compromised agent session is one guest cart.
+- **Payment method whitelist**, default `checkmo` (offline). Online methods must be explicitly allowed. Verified at `place_order` and again at the choke point.
+- **Order total cap** (default 100, **base currency**) — enforced at `add_to_cart` with rollback of the offending item, and re-verified against final totals including shipping and tax when the order is placed.
+- **Qty / cart-size caps** (default 5 per item, 10 line items). The quantity cap applies to the *resulting* quantity, so repeated additions of the same SKU cannot stack past it, and both are re-verified at order time.
+- **Country whitelist** for shipping (default `NL`), checked at estimation, at address save, and again at order time. Independent of Magento's own allowed-countries setting — both must permit the destination.
+- **Rate limits** — global orders/hour (default 10) and per-IP orders/hour (default 10), counted per store. Slots are reserved before the order and released if it fails, so concurrent calls cannot overshoot the cap and a failing payment method cannot drain the budget. Backed by a DB table (`angeo_mcp_order_log`), `open_basedir`-safe, doubling as an audit trail. *Important:* the server already rate-limits requests per client key (`REMOTE_ADDR|sha256(token)`), and cloud MCP clients like Claude connect from a small pool of provider egress IPs — so the **global** cap is the real safety valve; the per-IP cap is a best-effort secondary brake, and behind a proxy it is only as trustworthy as your forwarded-header configuration.
+- **Order tagging** — every agent order gets a status-history comment identifying it as agent-placed. The client IP is kept in `angeo_mcp_order_log` under a seven-day retention rather than in the order history, which is retained indefinitely.
+- **Demo hygiene cron** — **off by default.** When enabled it cancels unpaid agent orders older than 24h. Offline methods such as `checkmo` leave legitimate orders in exactly that state, so enable it on demo and staging only.
+
+### Known limits of the model
+
+- Guardrails bind to carts created through `create_cart`. A cart created by other means and then driven through the MCP tools is subject to the in-tool checks but is not flagged for the plugin.
+- The per-IP cap is advisory in any deployment behind a CDN or load balancer. Rely on the global cap.
+- `module-mcp-server` owns bearer-token validation and per-client-key rate limiting. This module's fail-safe depends on `angeo_mcp/general/require_token`.
 
 Found a vulnerability? See [SECURITY.md](SECURITY.md) — please do not open a public issue.
 
@@ -135,7 +160,7 @@ Example prompt:
 Yes — that is what the six tools do, and there is a [recorded demo with a real order number](https://angeo.dev/ai-agent-checkout-in-magento-2-claude-places-a-real-order-via-mcp/). Which is precisely why every guardrail is enforced in Magento rather than requested in a prompt, and why the module ships disabled.
 
 **What stops an agent buying a thousand units?**
-Server-side caps: order total, quantity per item, line-item count, and orders per hour (global and per IP). All are re-checked at `place_order`, not only when the item is added.
+Server-side caps: order total, quantity per item, line-item count, and orders per hour (global and per IP). All of them are re-verified inside `CartManagementInterface::placeOrder()`, not only when the item is added — so they hold even if the order request never goes through the `place_order` tool. The quantity cap applies to the resulting line quantity, so repeated small additions cannot stack past it.
 
 **Is this the same as ACP Instant Checkout?**
 No. ACP Instant Checkout is OpenAI's purchase flow inside ChatGPT and requires merchant approval — see [`module-openai-instant-checkout`](https://github.com/angeo-dev/module-openai-instant-checkout). MCP checkout is an open tool surface any MCP client can drive, with no approval process. Different clients, different gatekeeping, both worth having.

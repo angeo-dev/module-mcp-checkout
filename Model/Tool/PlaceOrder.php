@@ -9,15 +9,26 @@ namespace Angeo\McpCheckout\Model\Tool;
 
 use Angeo\McpCheckout\Model\CartResolver;
 use Angeo\McpCheckout\Model\Config;
+use Angeo\McpCheckout\Model\GuardrailValidator;
 use Angeo\McpCheckout\Model\OrderRateLimiter;
 use Magento\Checkout\Api\GuestPaymentInformationManagementInterface;
 use Magento\Framework\HTTP\PhpEnvironment\RemoteAddress;
 use Magento\Quote\Api\Data\PaymentInterfaceFactory;
 use Magento\Sales\Api\OrderRepositoryInterface;
-use Magento\Sales\Model\Order;
 use Magento\Store\Api\Data\StoreInterface;
 use Psr\Log\LoggerInterface;
 
+/**
+ * ENFORCEMENT MODEL (1.1.0). The checks in this class are a fast, agent-readable
+ * pre-flight: they exist so the model gets a specific, recoverable message
+ * before payment information is touched. They are NOT the security boundary.
+ *
+ * The boundary is Plugin\AgentOrderGuardrails, which re-runs the same
+ * GuardrailValidator and claims the rate-limit slot inside
+ * CartManagementInterface::placeOrder() — the one point every route to an order passes
+ * through, including Magento's own anonymous guest-cart REST endpoints. Skipping
+ * this tool does not skip the limits.
+ */
 class PlaceOrder extends AbstractTool
 {
     public function __construct(
@@ -27,6 +38,7 @@ class PlaceOrder extends AbstractTool
         private readonly PaymentInterfaceFactory $paymentFactory,
         private readonly CartResolver $cartResolver,
         private readonly OrderRateLimiter $rateLimiter,
+        private readonly GuardrailValidator $guardrailValidator,
         private readonly OrderRepositoryInterface $orderRepository,
         private readonly RemoteAddress $remoteAddress
     ) {
@@ -72,25 +84,14 @@ class PlaceOrder extends AbstractTool
         $cartId = (string)$args['cart_id'];
         $remoteIp = (string)($this->remoteAddress->getRemoteAddress() ?: 'unknown');
 
-        // Guardrail 1: rate limits (global + per client key).
+        // Pre-flight 1: rate limits. Advisory read — the slot is actually
+        // claimed by the guardrail plugin, atomically, further down the stack.
         $this->rateLimiter->assertAllowed($remoteIp, $storeId);
 
-        // Guardrail 2: order total cap, re-checked at the last possible moment.
-        $quote = $this->cartResolver->getQuoteByMaskedId($cartId);
-        $maxTotal = $this->config->getMaxOrderTotal($storeId);
-        $grandTotal = (float)$quote->getGrandTotal();
-        if ($maxTotal > 0 && $grandTotal > $maxTotal) {
-            throw new \InvalidArgumentException(sprintf(
-                'The order total %s %s exceeds the %s %s limit for agent orders. '
-                . 'Remove items or reduce quantities, then try again.',
-                number_format($grandTotal, 2),
-                (string)$quote->getQuoteCurrencyCode(),
-                number_format($maxTotal, 2),
-                (string)$quote->getQuoteCurrencyCode()
-            ));
-        }
+        $quote = $this->cartResolver->getQuoteByMaskedId($cartId, $storeId);
 
-        // Guardrail 3: payment method whitelist.
+        // Pre-flight 2: payment method whitelist, resolved before validation so
+        // the default-to-first-allowed behaviour stays observable to the agent.
         $allowed = $this->config->getAllowedPaymentMethods($storeId);
         if ($allowed === []) {
             throw new \InvalidArgumentException(
@@ -98,13 +99,11 @@ class PlaceOrder extends AbstractTool
             );
         }
         $methodCode = trim((string)($args['payment_method'] ?? '')) ?: $allowed[0];
-        if (!in_array($methodCode, $allowed, true)) {
-            throw new \InvalidArgumentException(sprintf(
-                'Payment method "%s" is not allowed for agent orders. Allowed: %s.',
-                $methodCode,
-                implode(', ', $allowed)
-            ));
-        }
+
+        // Pre-flight 3: total cap against final totals (shipping and tax
+        // included), quantity and line-item caps, destination country, and the
+        // payment method.
+        $this->guardrailValidator->validate($quote, $storeId, $methodCode);
 
         // Email must have been provided in set_shipping_information.
         $email = (string)($quote->getBillingAddress()?->getEmail()
@@ -118,6 +117,8 @@ class PlaceOrder extends AbstractTool
         $payment = $this->paymentFactory->create();
         $payment->setMethod($methodCode);
 
+        // Rate-limit reservation, order tagging and the audit row all happen
+        // inside Plugin\AgentOrderGuardrails, on the far side of this call.
         $orderId = (int)$this->paymentInformationManagement->savePaymentInformationAndPlaceOrder(
             $cartId,
             $email,
@@ -125,23 +126,12 @@ class PlaceOrder extends AbstractTool
         );
 
         $order = $this->orderRepository->get($orderId);
-        if ($order instanceof Order) {
-            $order->addCommentToStatusHistory(
-                sprintf('Order placed by an AI agent via MCP (Angeo_McpCheckout, IP: %s).', $remoteIp),
-                false,
-                false
-            );
-            $this->orderRepository->save($order);
-        }
-
-        $this->rateLimiter->record($remoteIp, $orderId, (int)$quote->getId());
 
         $this->logger->info(sprintf(
-            '[Angeo_McpCheckout] Agent order placed: #%s, total %s %s, IP %s',
+            '[Angeo_McpCheckout] Agent order placed: #%s, total %s %s',
             $order->getIncrementId(),
             $order->getGrandTotal(),
-            $order->getOrderCurrencyCode(),
-            $remoteIp
+            $order->getOrderCurrencyCode()
         ));
 
         return [

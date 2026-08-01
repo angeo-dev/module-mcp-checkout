@@ -7,6 +7,8 @@ declare(strict_types=1);
 
 namespace Angeo\McpCheckout\Model\Tool;
 
+use Angeo\McpCheckout\Model\AgentQuoteRegistry;
+use Angeo\McpCheckout\Model\CartResolver;
 use Angeo\McpCheckout\Model\Config;
 use Magento\Quote\Api\GuestCartManagementInterface;
 use Magento\Store\Api\Data\StoreInterface;
@@ -17,7 +19,9 @@ class CreateCart extends AbstractTool
     public function __construct(
         Config $config,
         LoggerInterface $logger,
-        private readonly GuestCartManagementInterface $guestCartManagement
+        private readonly GuestCartManagementInterface $guestCartManagement,
+        private readonly CartResolver $cartResolver,
+        private readonly AgentQuoteRegistry $agentQuoteRegistry
     ) {
         parent::__construct($config, $logger);
     }
@@ -46,6 +50,14 @@ class CreateCart extends AbstractTool
     protected function doExecute(array $args, StoreInterface $store): array
     {
         $cartId = $this->guestCartManagement->createEmptyCart();
+
+        // Flag the quote as agent-created so Plugin\AgentOrderGuardrails
+        // recognises it at CartManagementInterface::placeOrder(), whichever entry point
+        // gets there. Without this the caps would only bind inside the MCP
+        // tools, and the masked cart_id is equally valid against Magento's own
+        // anonymous guest-cart endpoints.
+        $quote = $this->cartResolver->getQuoteByMaskedId($cartId, (int)$store->getId());
+        $this->agentQuoteRegistry->mark((int)$quote->getId(), (int)$store->getId());
 
         return [
             'cart_id' => $cartId,

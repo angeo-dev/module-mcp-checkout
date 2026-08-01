@@ -52,7 +52,13 @@ class GetCart extends AbstractTool
 
     protected function doExecute(array $args, StoreInterface $store): array
     {
-        $quote = $this->cartResolver->getQuoteByMaskedId((string)$args['cart_id']);
+        // Read-only: an already-ordered cart may still be inspected, but it
+        // must belong to this store and must be a guest cart.
+        $quote = $this->cartResolver->getQuoteByMaskedId(
+            (string)$args['cart_id'],
+            (int)$store->getId(),
+            false
+        );
 
         return [
             'cart' => $this->cartFormatter->format($quote),

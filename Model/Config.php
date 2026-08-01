@@ -86,7 +86,12 @@ class Config
     }
 
     /**
-     * Hard cap on quote grand total, in the quote currency. 0 disables the cap.
+     * Hard cap on quote grand total, in the store's BASE currency. 0 disables
+     * the cap.
+     *
+     * @since 1.1.0 compared against getBaseGrandTotal(). Until 1.0.1 this was
+     *        compared against the quote currency total, so on a multi-currency
+     *        store the effective cap moved with the shopper's currency choice.
      */
     public function getMaxOrderTotal(?int $storeId = null): float
     {
@@ -177,13 +182,21 @@ class Config
         return $allowed === [] || in_array(strtoupper($countryId), $allowed, true);
     }
 
-    public function isCleanupEnabled(): bool
+    public function isCleanupEnabled(?int $storeId = null): bool
     {
-        return $this->scopeConfig->isSetFlag(self::XML_PATH_CLEANUP_ENABLED);
+        return $this->scopeConfig->isSetFlag(
+            self::XML_PATH_CLEANUP_ENABLED,
+            ScopeInterface::SCOPE_STORE,
+            $storeId
+        );
     }
 
-    public function getCleanupOrderAgeHours(): int
+    public function getCleanupOrderAgeHours(?int $storeId = null): int
     {
-        return max(1, (int)$this->scopeConfig->getValue(self::XML_PATH_CLEANUP_ORDER_AGE_HOURS));
+        return max(1, (int)$this->scopeConfig->getValue(
+            self::XML_PATH_CLEANUP_ORDER_AGE_HOURS,
+            ScopeInterface::SCOPE_STORE,
+            $storeId
+        ));
     }
 }

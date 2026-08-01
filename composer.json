@@ -3,7 +3,7 @@
     "description": "Guest cart and checkout MCP tools for Magento 2. Adds create_cart, add_to_cart, get_cart, get_shipping_methods, set_shipping_information and place_order to the Angeo MCP Server, letting AI agents (Claude and other MCP clients) complete a full discovery-to-order flow with hard server-side guardrails.",
     "type": "magento2-module",
     "license": "MIT",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "keywords": [
         "magento2",
         "mcp",

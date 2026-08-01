@@ -7,6 +7,7 @@ declare(strict_types=1);
 
 namespace Angeo\McpCheckout\Model\Tool;
 
+use Angeo\McpCheckout\Model\CartResolver;
 use Angeo\McpCheckout\Model\Config;
 use Magento\Checkout\Api\Data\ShippingInformationInterfaceFactory;
 use Magento\Checkout\Api\GuestShippingInformationManagementInterface;
@@ -22,7 +23,8 @@ class SetShippingInformation extends AbstractTool
         LoggerInterface $logger,
         private readonly GuestShippingInformationManagementInterface $shippingInformationManagement,
         private readonly ShippingInformationInterfaceFactory $shippingInformationFactory,
-        private readonly AddressInterfaceFactory $addressFactory
+        private readonly AddressInterfaceFactory $addressFactory,
+        private readonly CartResolver $cartResolver
     ) {
         parent::__construct($config, $logger);
     }
@@ -92,6 +94,10 @@ class SetShippingInformation extends AbstractTool
     protected function doExecute(array $args, StoreInterface $store): array
     {
         $storeId = (int)$store->getId();
+
+        // Ownership check before anything is written: the cart must be a guest
+        // cart, on this store, not already ordered.
+        $this->cartResolver->getQuoteByMaskedId((string)$args['cart_id'], $storeId);
 
         $email = trim((string)$args['email']);
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {

@@ -3,13 +3,28 @@
         "column": {
             "entity_id": true,
             "remote_ip": true,
+            "store_id": true,
             "order_id": true,
             "quote_id": true,
             "created_at": true
         },
         "index": {
             "ANGEO_MCP_ORDER_LOG_CREATED_AT": true,
-            "ANGEO_MCP_ORDER_LOG_REMOTE_IP_CREATED_AT": true
+            "ANGEO_MCP_ORDER_LOG_REMOTE_IP_CREATED_AT": true,
+            "ANGEO_MCP_ORDER_LOG_STORE_ID_CREATED_AT_ENTITY_ID": true
+        },
+        "constraint": {
+            "PRIMARY": true
+        }
+    },
+    "angeo_mcp_agent_quote": {
+        "column": {
+            "quote_id": true,
+            "store_id": true,
+            "created_at": true
+        },
+        "index": {
+            "ANGEO_MCP_AGENT_QUOTE_CREATED_AT": true
         },
         "constraint": {
             "PRIMARY": true

@@ -31,12 +31,15 @@
                        showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>Maximum Order Total</label>
                     <validate>validate-zero-or-greater validate-number</validate>
-                    <comment>Hard cap on the grand total of agent-placed orders, in store currency. 0 = no cap (not recommended).</comment>
+                    <comment><![CDATA[Hard cap on the grand total of agent-placed orders, in the store's
+                        <strong>base currency</strong>. Enforced when items are added and again when the order is
+                        placed, against final totals including shipping and tax. 0 = no cap (not recommended).]]></comment>
                 </field>
                 <field id="max_qty_per_item" translate="label" type="text" sortOrder="20"
                        showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>Maximum Quantity per Line Item</label>
                     <validate>validate-greater-than-zero validate-digits</validate>
+                    <comment>Applies to the resulting quantity, so repeated additions of the same SKU cannot stack past it.</comment>
                 </field>
                 <field id="max_cart_items" translate="label" type="text" sortOrder="30"
                        showInDefault="1" showInWebsite="1" showInStore="1">
@@ -53,7 +56,11 @@
                        showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>Maximum Orders per Hour (per IP)</label>
                     <validate>validate-zero-or-greater validate-digits</validate>
-                    <comment><![CDATA[Secondary brake. Cloud MCP clients (e.g. Claude) connect from a small pool of provider IPs, so this limit is shared across their users — keep it at or above the global limit and rely on the global cap as the primary control. 0 = no limit.]]></comment>
+                    <comment><![CDATA[Secondary brake, best-effort. Cloud MCP clients (e.g. Claude) connect from a
+                        small pool of provider IPs, so this limit is shared across their users — keep it at or above the
+                        global limit and rely on the global cap as the primary control. Behind a CDN or load balancer the
+                        value seen here is the proxy's address unless forwarded-header trust is configured, and where it
+                        <em>is</em> configured the header is client-supplied. 0 = no limit.]]></comment>
                 </field>
             </group>
 
@@ -84,9 +91,12 @@
                 <label>Demo Cleanup</label>
                 <field id="enabled" translate="label comment" type="select" sortOrder="10"
                        showInDefault="1" showInWebsite="0" showInStore="0">
-                    <label>Auto-cancel Stale Agent Orders</label>
+                    <label>Auto-cancel Stale Agent Orders (demo only)</label>
                     <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-                    <comment>Hourly cron cancels agent orders still unpaid (state: new / pending payment) after the age below. Disable if agent orders on this store are real.</comment>
+                    <comment><![CDATA[<strong>Destructive. Off by default.</strong> An hourly cron cancels agent orders
+                        still unpaid (state: new / pending payment) after the age below. Offline methods such as
+                        <code>checkmo</code> stay in that state until you mark them paid, so enabling this on a store
+                        taking real agent orders will cancel legitimate ones. Demo and staging deployments only.]]></comment>
                 </field>
                 <field id="order_age_hours" translate="label" type="text" sortOrder="20"
                        showInDefault="1" showInWebsite="0" showInStore="0">
